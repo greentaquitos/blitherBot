@@ -13,13 +13,14 @@ import bothelp
 
 #todo:
 
-	# bestower method gives bestower role, sends the invite link in the bestowment channel
-
 	# a new person landing (via the relevant link?) triggers the bestower method
 
 	# an invite expiring triggers the bestower method
-	
-	# the bestower method checks the whole server for inactivity before bestowing
+
+	# readying and noticing there's no invite links triggers the bestower method
+
+	# add alert errors for me
+	# add public logging
 
 
 
@@ -71,13 +72,30 @@ class Bot():
 		if self.debug:
 			self.log(m)
 
+	@property
+	def guild(self):
+		return self.client.get_guild(self.config.GUILD)
+
+	@property
+	def eligible_bestowers(self):
+		return [m for m in self.guild.members if not m.bot and self.active_role in m.roles and m.id != self.most_recent_bestower]
+
+	@property
+	def most_recent_bestower(self):
+		cur = self.db.execute("SELECT bestower FROM bestowments ORDER BY given_to_bestower_at DESC LIMIT 1")
+		mrb = [q[0] for q in cur.fetchall()]
+		mrb = mrb[0] if len(mrb) > 0 else None
+		self.log("mrb-er is "+str(mrb))
+		return mrb
+
 	# EVENTS
 
 	async def on_ready(self):
 		self.log('rhizone ready')
-		self.guild = self.client.get_guild(self.config.GUILD)
 		self.active_role = discord.utils.get(self.guild.roles, id=self.config.ACTIVE_ROLE)
-		await self.check_for_inactivity()
+		self.bestower_role = discord.utils.get(self.guild.roles, id=self.config.BESTOWER_ROLE)
+		self.bestowment_channel = discord.utils.get(self.guild.channels, id=self.config.BESTOWMENT_CHANNEL)
+		self.lobby_channel = discord.utils.get(self.guild.channels, id=self.config.LOBBY_CHANNEL)
 
 	async def on_message(self,m):
 		if m.author.bot:
@@ -85,8 +103,11 @@ class Bot():
 
 		try:
 			self.save_message(m)
-			await m.author.add_roles(self.active_role)
-			self.log("added active role to "+m.author.name)
+			
+			if self.active_role not in m.author.roles:
+				await m.author.add_roles(self.active_role)
+				self.log("added active role to "+m.author.name)
+
 		
 		except Exception as e:
 			self.log(traceback.format_exc())
@@ -106,7 +127,7 @@ class Bot():
 	# ACTIVITY
 
 	async def check_for_inactivity(self):
-		one_week_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=27)).strftime("%Y-%m-%d %H:%M:%S.%f")
+		one_week_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f")
 		cur = self.db.execute("SELECT sent_by, sent_at FROM messages")
 		members = [(q[0],q[1]) for q in cur.fetchall()]
 
@@ -117,5 +138,30 @@ class Bot():
 				continue
 
 			m = self.guild.get_member(i[0])
-			await m.remove_roles(self.active_role)
-			self.log("removed active role from "+m.name)
+			if m:
+				await m.remove_roles(self.active_role)
+				self.log("removed active role from "+m.name)
+
+	# BESTOWMENT
+
+	async def bestow(self):
+		await self.check_for_inactivity()
+
+		for m in self.bestower_role.members[:]:
+			await m.remove_roles(self.bestower_role)
+
+		if len(self.eligible_bestowers) < 1:
+			self.log("no eligible bestowers")
+			return
+
+		bestower = random.choice(self.eligible_bestowers)
+		await bestower.add_roles(self.bestower_role)
+
+		invite = await self.lobby_channel.create_invite(max_age=self.config.INVITE_DURATION,max_uses=1)
+
+		await self.bestowment_channel.send(bestower.mention + ", behold! This is the one and only invite link in the server. Use it wisely.\n\n||`"+str(invite)+"`||")
+
+		cursor = self.db.cursor()
+		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
+		self.db.commit()
+		cursor.close()
