@@ -13,23 +13,14 @@ import bothelp
 
 #todo:
 
-	# audit method checks for:
-		# 0 non-bestowees other than me and eg
-			# if 1 and active record is empty, update it
-			# otherwise alert me and stop bestowing
-		# 1 active invite link
-			# if 0, bestow
-
-	# audit on_ready plus every hour or so
-
-	# exempt testUser from bestowment
-
 	# ===== SERVER STUFF
 
+	# remove testUser
 	# clean up channels
 	# add other channels?
 	# self roles: color, pronoun
 	# add rules and info
+	# add announcement launch
 	# add ticketing
 	# add deleted/edited message logging
 	# make sure thread perms exist in main
@@ -38,6 +29,8 @@ import bothelp
 
 	# colors change automatically based on rank
 	# command to get info on users
+	# more stats on bestowment announcements!
+	# audit command
 
 
 
@@ -137,7 +130,10 @@ class Bot():
 		self.private_log_channel = discord.utils.get(self.guild.channels, id=self.config.PRIVATE_LOG_CHANNEL)
 		self.taq = self.guild.get_member(self.config.TAQ)
 		self.eg = self.guild.get_member(self.config.EG)
-		await self.private_log("I'm online and ready to do bot stuff!")
+		
+		await self.private_log("I'm back online!")
+
+		await self.audit()
 
 	async def on_message(self,m):
 		if m.author.bot:
@@ -155,7 +151,6 @@ class Bot():
 			await self.private_alert(traceback.format_exc())
 
 	async def on_member_join(self,member):
-		self.log('o_m_j ' + member.name)
 		if self.active_bestowment:
 			self.log('active bestowment')
 			await self.resolve_active_bestowment(member)
@@ -178,8 +173,6 @@ class Bot():
 	# ACTIVITY
 
 	async def check_for_inactivity(self):
-		self.log('c_f_i')
-
 		one_week_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f")
 		cur = self.db.execute("SELECT sent_by, sent_at FROM messages")
 		members = [(q[0],q[1]) for q in cur.fetchall()]
@@ -198,8 +191,6 @@ class Bot():
 	# BESTOWMENT
 
 	async def bestow(self):
-		self.log('bestow')
-
 		await self.check_for_inactivity()
 
 		for m in self.bestower_role.members[:]:
@@ -224,8 +215,6 @@ class Bot():
 		await self.public_log(bestower.mention+" has been chosen to bestow the next invite link.")
 
 	async def resolve_active_bestowment(self, member):
-		self.log('r_a_b')
-
 		cursor = self.db.cursor()
 		cursor.execute("UPDATE bestowments SET bestowee = ?, bestowee_joined_at = ? WHERE rowid = ?", [member.id,member.joined_at,self.active_bestowment])
 		self.db.commit()
@@ -233,7 +222,29 @@ class Bot():
 
 		await self.public_log("...and they chose "+member.mention+"! Welcome!")
 
-		self.log('logged')
-
 		await self.bestow()
 
+	async def audit(self):
+
+		cursor = self.db.execute("SELECT bestowee FROM bestowments")
+		members = [q[0] for q in cursor.fetchall()]
+		cursor.close()
+
+		non_bestowees = []
+
+		for m in self.guild.members:
+			if m.id not in [self.config.TAQ,self.config.EG] and m.id not in members and not m.bot:
+				non_bestowees.append(m)
+
+		if len(non_bestowees) == 1 and self.active_bestowment:
+			await self.resolve_active_bestowment(non_bestowees[0])
+		elif len(non_bestowees) > 1:
+			self.do_bestow = False
+			await self.private_alert("Audit found no active bestowment!")
+		else:
+			invites = await self.lobby_channel.invites()
+			if len(invites) < 1:
+				await self.bestow()
+
+		await asyncio.sleep(30)
+		await self.audit()
