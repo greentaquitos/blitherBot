@@ -22,4 +22,8 @@ async def on_ready():
 async def on_message(message):
 	await b.on_message(message)
 
+@b.client.event
+async def on_member_join(member):
+	await b.on_member_join(member)
+
 b.start_bot(config)
