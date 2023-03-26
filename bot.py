@@ -13,9 +13,12 @@ import bothelp
 
 #todo:
 
+	# systemctrl me
+
 	# ===== SERVER STUFF
 
-	# remove testUser
+	# pick a name
+	# pick an icon
 	# clean up channels
 	# add other channels?
 	# self roles: color, pronoun
@@ -30,7 +33,6 @@ import bothelp
 	# colors change automatically based on rank
 	# command to get info on users
 	# more stats on bestowment announcements!
-	# audit command
 
 
 
@@ -92,7 +94,7 @@ class Bot():
 
 	async def private_alert(self, m):
 		self.log(m)
-		m = self.taq.mention + "\n\n" + m
+		m = self.taq.mention + "\n" + m
 		await self.private_log_channel.send(m)
 
 	# PROPERTIES
@@ -151,14 +153,14 @@ class Bot():
 			await self.private_alert(traceback.format_exc())
 
 	async def on_member_join(self,member):
+		if member.bot:
+			return
+
 		if self.active_bestowment:
-			self.log('active bestowment')
 			await self.resolve_active_bestowment(member)
 		else:
-			self.log('no active bestowment')
 			self.do_bestow = False
 			await self.private_alert("no active bestowment for "+member.name+"!")
-		return
 
 	# SAVING
 
@@ -225,7 +227,6 @@ class Bot():
 		await self.bestow()
 
 	async def audit(self):
-
 		cursor = self.db.execute("SELECT bestowee FROM bestowments")
 		members = [q[0] for q in cursor.fetchall()]
 		cursor.close()
