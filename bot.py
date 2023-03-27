@@ -13,23 +13,6 @@ import bothelp
 
 #todo:
 
-	# systemctrl me
-
-	# ===== SERVER STUFF
-
-	# pick a name
-	# pick an icon
-	# clean up channels
-	# add other channels?
-	# self roles: color, pronoun
-	# add rules and info
-	# add announcement launch
-	# add ticketing
-	# add deleted/edited message logging
-	# make sure thread perms exist in main
-
-	# ===== EXTRA/IDEAS
-
 	# colors change automatically based on rank
 	# command to get info on users
 	# more stats on bestowment announcements!
@@ -211,10 +194,11 @@ class Bot():
 
 		cursor = self.db.cursor()
 		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
+		invite_number = cursor.lastrowid
 		self.db.commit()
 		cursor.close()
 
-		await self.public_log(bestower.mention+" has been chosen to bestow the next invite link.")
+		await self.public_log(bestower.mention+" has been chosen to bestow invite link #"+invite_number+".")
 
 	async def resolve_active_bestowment(self, member):
 		cursor = self.db.cursor()
@@ -244,6 +228,7 @@ class Bot():
 			await self.private_alert("Audit found no active bestowment!")
 		else:
 			invites = await self.lobby_channel.invites()
+			invites = [i for i in invites if i.inviter.id == self.user.id]
 			if len(invites) < 1:
 				await self.bestow()
 
