@@ -7,11 +7,14 @@ import random
 import traceback
 import re
 import datetime
+import pprint
 
 from exceptions import FeedbackError
 import bothelp
 
 #todo:
+
+	# ===== IDEAS
 
 	# colors change automatically based on rank
 	# command to get info on users
@@ -27,9 +30,8 @@ class Bot():
 
 		self.commands = []
 		
-		if not debug:
-			self.setup_db()
-			self.setup_discord()
+		self.setup_db()
+		self.setup_discord()
 
 	# SETUP
 
@@ -69,14 +71,20 @@ class Bot():
 
 	async def public_log(self, m):
 		self.log(m)
+		if self.debug:
+			return
 		await self.public_log_channel.send(embed=discord.Embed(description=m))
 
 	async def private_log(self, m):
 		self.log(m)
+		if self.debug:
+			return
 		await self.private_log_channel.send(m)
 
 	async def private_alert(self, m):
 		self.log(m)
+		if self.debug:
+			return
 		m = self.taq.mention + "\n" + m
 		await self.private_log_channel.send(m)
 
@@ -115,10 +123,10 @@ class Bot():
 		self.private_log_channel = discord.utils.get(self.guild.channels, id=self.config.PRIVATE_LOG_CHANNEL)
 		self.taq = self.guild.get_member(self.config.TAQ)
 		self.eg = self.guild.get_member(self.config.EG)
-		
-		await self.private_log("I'm back online!")
 
-		await self.audit()
+		if not self.debug:
+			await self.private_log("I'm back online!")
+			await self.audit()
 
 	async def on_message(self,m):
 		if m.author.bot:
@@ -176,6 +184,9 @@ class Bot():
 	# BESTOWMENT
 
 	async def bestow(self):
+		if not self.do_bestow:
+			return
+
 		await self.check_for_inactivity()
 
 		for m in self.bestower_role.members[:]:
@@ -185,7 +196,7 @@ class Bot():
 			await self.private_alert("no eligible bestowers!")
 			return
 
-		bestower = random.choice(self.eligible_bestowers)
+		bestower = self.draw_from_raffle()
 		await bestower.add_roles(self.bestower_role)
 
 		invite = await self.lobby_channel.create_invite(max_age=self.config.INVITE_DURATION,max_uses=1)
@@ -194,7 +205,7 @@ class Bot():
 
 		cursor = self.db.cursor()
 		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
-		invite_number = cursor.lastrowid
+		invite_number = str(cursor.lastrowid)
 		self.db.commit()
 		cursor.close()
 
@@ -211,6 +222,9 @@ class Bot():
 		await self.bestow()
 
 	async def audit(self):
+		if not self.do_bestow:
+			return
+
 		cursor = self.db.execute("SELECT bestowee FROM bestowments")
 		members = [q[0] for q in cursor.fetchall()]
 		cursor.close()
@@ -223,14 +237,62 @@ class Bot():
 
 		if len(non_bestowees) == 1 and self.active_bestowment:
 			await self.resolve_active_bestowment(non_bestowees[0])
-		elif len(non_bestowees) > 1:
+		elif len(non_bestowees) == 1:
 			self.do_bestow = False
 			await self.private_alert("Audit found no active bestowment!")
+		elif len(non_bestowees) > 1:
+			self.do_bestow = False
+			await self.private_alert("Audit found more than one new member!")
 		else:
 			invites = await self.lobby_channel.invites()
-			invites = [i for i in invites if i.inviter.id == self.user.id]
+			invites = [i for i in invites if i.inviter.id == self.client.user.id]
 			if len(invites) < 1:
 				await self.bestow()
 
 		await asyncio.sleep(30)
 		await self.audit()
+
+	def draw_from_raffle(self):
+		return random.choice(self.build_raffle())
+
+	def build_raffle(self):
+		mstats = self.compile_member_stats()
+		raffle = []
+		for m in mstats:
+			for t in range(m['tickets']):
+				raffle.append(m['m'])
+		return raffle
+
+	def compile_member_stats(self):
+		members = self.eligible_bestowers
+		member_stats = []
+		for m in members:
+			cursor = self.db.execute("SELECT rowid FROM bestowments WHERE bestower = ? OR bestowee = ? ORDER BY given_to_bestower_at DESC LIMIT 1", [m.id, m.id])
+			touch = cursor.fetchall()[0][0]
+			cursor = self.db.execute("SELECT COUNT(rowid) FROM bestowments WHERE bestower = ?",[m.id])
+			bestowments = cursor.fetchall()[0][0]
+			cursor.close()
+			children = self.count_progeny_for(m.id)
+			member_stats.append({'name':m.name,'id':m.id,'touch':touch,'bestowments':bestowments,'children':children,'m':m})
+
+		max_touch = max([m['touch'] for m in member_stats])
+		max_bestowments = max([m['bestowments'] for m in member_stats])
+		max_children = max([m['children'] for m in member_stats])
+
+		for m in member_stats:
+			m['tickets'] = max_touch+max_bestowments+max_children-m['touch']-m['bestowments']-m['children']
+		return member_stats
+
+
+	def count_progeny_for(self,member_id):
+		progeny = 0
+		for c in self.get_children_for(member_id):
+			progeny += 1
+			progeny += self.count_progeny_for(c)
+		return progeny
+
+	def get_children_for(self,member_id):
+		cursor = self.db.execute("SELECT bestowee FROM bestowments WHERE bestowee IS NOT NULL AND bestower = ?",[member_id])
+		children = [c[0] for c in cursor.fetchall()]
+		cursor.close()
+		return children
