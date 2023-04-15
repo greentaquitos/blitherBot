@@ -112,6 +112,14 @@ class Bot():
 		ab = ab[0][0] if len(ab) > 0 and not ab[0][1] else None
 		return ab
 
+	@property
+	def audit_count(self):
+		if not hasattr(self,'_audit_count'):
+			self._audit_count = 0
+		else:
+			self._audit_count += 1
+		return self._audit_count
+
 	# EVENTS
 
 	async def on_ready(self):
@@ -125,7 +133,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online!")
+			await self.private_log("I'm back online! (v2.02)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -222,6 +230,7 @@ class Bot():
 		await self.bestow()
 
 	async def audit(self):
+		await self.private_log("auditing "+str(self.audit_count))
 		if not self.do_bestow:
 			return
 
@@ -245,11 +254,12 @@ class Bot():
 			await self.private_alert("Audit found more than one new member!")
 		else:
 			invites = await self.lobby_channel.invites()
-			invites = [i for i in invites if i.inviter.id == self.client.user.id]
+			invites = [i for i in invites if i.inviter.id == self.client.user.id and not i.revoked]
+			await self.private_log("found "+str(len(invites))+" invites")
 			if len(invites) < 1:
 				await self.bestow()
 
-		await asyncio.sleep(30)
+		await asyncio.sleep(30*60)
 		await self.audit()
 
 	def draw_from_raffle(self):
