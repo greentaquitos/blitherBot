@@ -102,6 +102,19 @@ class Bot():
 		else:
 			return str(num)+'th'
 
+	def pronoun_for(self,member,which='subject'):
+		pronouns = []
+		if self.he_role in member.roles:
+			word = 'he' if which == 'subject' else 'him'
+			pronouns.append(word)
+		if self.she_role in member.roles:
+			word = 'she' if which == 'subject' else 'her'
+			pronouns.append(word)
+		if self.they_role in member.roles or len(pronouns) < 1:
+			word = 'they' if which == 'subject' else 'them'
+			pronouns.append(word)
+		return random.choice(pronouns)
+
 	# PROPERTIES
 
 	@property
@@ -142,15 +155,17 @@ class Bot():
 		self.he_role = discord.utils.get(self.guild.roles, id=self.config.HE_ROLE)
 		self.she_role = discord.utils.get(self.guild.roles, id=self.config.SHE_ROLE)
 		self.they_role = discord.utils.get(self.guild.roles, id=self.config.THEY_ROLE)
+
 		self.bestowment_channel = discord.utils.get(self.guild.channels, id=self.config.BESTOWMENT_CHANNEL)
 		self.lobby_channel = discord.utils.get(self.guild.channels, id=self.config.LOBBY_CHANNEL)
 		self.public_log_channel = discord.utils.get(self.guild.channels, id=self.config.PUBLIC_LOG_CHANNEL)
 		self.private_log_channel = discord.utils.get(self.guild.channels, id=self.config.PRIVATE_LOG_CHANNEL)
+		
 		self.taq = self.guild.get_member(self.config.TAQ)
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.10)")
+			await self.private_log("I'm back online! (v3.11)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -274,15 +289,8 @@ class Bot():
 		rank = "most" if rank_index == 1 else self.nth(rank_index)+" most"
 		chance = str(round(bstats['chance']*100,2))
 
-		pronouns = []
-		if self.he_role in bestower.roles:
-			pronouns.append('He')
-		if self.she_role in bestower.roles:
-			pronouns.append('She')
-		if self.they_role in bestower.roles or len(pronouns) < 1:
-			pronouns.append('They')
-		they = random.choice(pronouns)
-		were = 'were' if pronoun == 'They' else 'was'
+		they = self.pronoun_for(bestower).capitalize()
+		were = 'were' if they == 'They' else 'was'
 
 		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
 
@@ -291,13 +299,18 @@ class Bot():
 		await self.public_log(msg)
 
 	async def resolve_active_bestowment(self, member):
+		cursor = self.db.execute("SELECT bestower FROM bestowments WHERE rowid = ?",[self.active_bestowment])
+		b_id = cursor.fetchall()[0][0]
+		cursor.close()
+		bestower = self.guild.get_member(b_id) or None
+		they = self.pronoun_for(bestower) if bestower else "they"
+
 		cursor = self.db.cursor()
 		cursor.execute("UPDATE bestowments SET bestowee = ?, bestowee_joined_at = ? WHERE rowid = ?", [member.id,member.joined_at,self.active_bestowment])
 		self.db.commit()
 		cursor.close()
 
-		await self.public_log("...and they chose "+member.mention+"! Welcome!")
-
+		await self.public_log(f"...and {they} chose {member}! Welcome!")
 		await self.bestow()
 
 	async def audit(self):
