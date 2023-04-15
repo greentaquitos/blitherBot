@@ -28,7 +28,10 @@ class Bot():
 		self.confirming = None
 		self.do_bestow = True
 
-		self.commands = []
+		self.commands = [
+			("help", self.help),
+			("stats", self.stats)
+		]
 		
 		self.setup_db()
 		self.setup_discord()
@@ -79,14 +82,13 @@ class Bot():
 		self.log(m)
 		if self.debug:
 			return
-		await self.private_log_channel.send(m)
+		await self.private_log_channel.send(embed=discord.Embed(description=m))
 
 	async def private_alert(self, m):
 		self.log(m)
 		if self.debug:
 			return
-		m = self.taq.mention + "\n" + m
-		await self.private_log_channel.send(m)
+		await self.private_log_channel.send(self.taq.mention,embed=discord.Embed(description=m))
 
 	# PROPERTIES
 
@@ -151,6 +153,19 @@ class Bot():
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
 
+
+		try:
+			if m.content.lower().startswith('bot '):
+				await self.parse_command(m)
+			else:
+				respondable = False
+
+		except FeedbackError as e:
+			await self.private_alert(f"Error responding to message: {e}")
+
+		except Exception as e:
+			await self.private_alert(traceback.format_exc())
+
 	async def on_member_join(self,member):
 		if member.bot:
 			return
@@ -160,6 +175,26 @@ class Bot():
 		else:
 			self.do_bestow = False
 			await self.private_alert("no active bestowment for "+member.name+"!")
+
+	# COMMANDS
+
+	async def parse_command(self,m):
+		for command,method in self.commands:
+			if m.content[4:].lower().startswith(command):
+				await method(m)
+				return
+
+	async def help(self,m):
+		reply = bothelp.default
+		await m.reply(embed=discord.Embed(description=reply), mention_author=False)
+
+	async def stats(self,m):
+		arguments = m.content[10:]
+		if m.channel.id not in self.config.SPAM_CHANNELS:
+			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
+			return
+		await self.print_member_stats(arguments)
+
 
 	# SAVING
 
@@ -291,7 +326,43 @@ class Bot():
 
 		for m in member_stats:
 			m['tickets'] = max_touch+max_bestowments+max_children-m['touch']-m['bestowments']-m['children']
+		total_tickets = sum([m['tickets'] for m in member_stats])
+		for m in member_stats:
+			m['chance'] = m['tickets']/total_tickets
+
 		return member_stats
+
+	async def print_member_stats(self,size='l'):
+		msg = ""
+		stats = self.compile_member_stats()
+		stats.sort(key=lambda m:m['chance'],reverse=True)
+		count = 0
+		for member in stats:
+			if size == 's':
+				more = ""
+				more += "**"+member['m'].name+'**: '+str(member['tickets'])+" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
+			elif size == 'xs':
+				more = '**'+member['m'].name+'**: '+str(round(member['chance']*100,2))+'%\n'
+			else:
+				more = ""
+				more += "**"+member['m'].name+"**\n"
+				more += str(member['tickets']) +" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
+				more += "last invite #: "+str(member['touch'])+"\n"
+				more += "invites given: "+str(member['bestowments'])+"\n"
+				more += "descendants: "+str(member['children'])+"\n\n"
+
+			if len(more) + len(msg) < 1000:
+				msg += more
+				count += 1
+			else:
+				msg += "(showing top "+str(count)+" of "+str(len(stats))+")"
+				break
+
+		await self.private_log(msg)
+
+
+
+
 
 
 	def count_progeny_for(self,member_id):
