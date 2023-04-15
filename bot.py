@@ -90,6 +90,18 @@ class Bot():
 			return
 		await self.private_log_channel.send(self.taq.mention,embed=discord.Embed(description=m))
 
+	def nth(self,num):
+		last_char = str(num)[-1]
+		sec_last_char = str(num)[-2] if len(str(num)) > 1 else None
+		if last_char == '1' and sec_last_char != '1':
+			return str(num)+'st'
+		elif last_char == '2' and sec_last_char != '1':
+			return str(num)+'nd'
+		elif last_char == '3' and sec_last_char != '1':
+			return str(num)+'rd'
+		else:
+			return str(num)+'th'
+
 	# PROPERTIES
 
 	@property
@@ -127,6 +139,9 @@ class Bot():
 	async def on_ready(self):
 		self.active_role = discord.utils.get(self.guild.roles, id=self.config.ACTIVE_ROLE)
 		self.bestower_role = discord.utils.get(self.guild.roles, id=self.config.BESTOWER_ROLE)
+		self.he_role = discord.utils.get(self.guild.roles, id=self.config.HE_ROLE)
+		self.she_role = discord.utils.get(self.guild.roles, id=self.config.SHE_ROLE)
+		self.they_role = discord.utils.get(self.guild.roles, id=self.config.THEY_ROLE)
 		self.bestowment_channel = discord.utils.get(self.guild.channels, id=self.config.BESTOWMENT_CHANNEL)
 		self.lobby_channel = discord.utils.get(self.guild.channels, id=self.config.LOBBY_CHANNEL)
 		self.public_log_channel = discord.utils.get(self.guild.channels, id=self.config.PUBLIC_LOG_CHANNEL)
@@ -135,7 +150,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v2.02)")
+			await self.private_log("I'm back online! (v3.10)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -193,7 +208,7 @@ class Bot():
 		if m.channel.id not in self.config.SPAM_CHANNELS:
 			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
 			return
-		await self.print_member_stats(arguments)
+		await m.reply(embed=discord.Embed(description=self.print_member_stats(arguments)))
 
 
 	# SAVING
@@ -239,6 +254,7 @@ class Bot():
 			await self.private_alert("no eligible bestowers!")
 			return
 
+		mstats = self.compile_member_stats()
 		bestower = self.draw_from_raffle()
 		await bestower.add_roles(self.bestower_role)
 
@@ -252,7 +268,27 @@ class Bot():
 		self.db.commit()
 		cursor.close()
 
-		await self.public_log(bestower.mention+" has been chosen to bestow invite link #"+invite_number+".")
+		mstats.sort(key=lambda m: m['chance'],reverse=True)
+		bstats = [m for m in mstats if m['m'].id == bestower.id][0]
+		rank_index = mstats.index(bstats)+1
+		rank = "most" if rank_index == 1 else self.nth(rank_index)+" most"
+		chance = str(round(bstats['chance']*100,2))
+
+		pronouns = []
+		if self.he_role in bestower.roles:
+			pronouns.append('He')
+		if self.she_role in bestower.roles:
+			pronouns.append('She')
+		if self.they_role in bestower.roles or len(pronouns) < 1:
+			pronouns.append('They')
+		they = random.choice(pronouns)
+		were = 'were' if pronoun == 'They' else 'was'
+
+		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
+
+		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n{they} {were} the {rank} likely with {an} {chance}% chance."
+
+		await self.public_log(msg)
 
 	async def resolve_active_bestowment(self, member):
 		cursor = self.db.cursor()
@@ -332,7 +368,7 @@ class Bot():
 
 		return member_stats
 
-	async def print_member_stats(self,size='l'):
+	def print_member_stats(self,size='l'):
 		msg = ""
 		stats = self.compile_member_stats()
 		stats.sort(key=lambda m:m['chance'],reverse=True)
@@ -351,19 +387,14 @@ class Bot():
 				more += "invites given: "+str(member['bestowments'])+"\n"
 				more += "descendants: "+str(member['children'])+"\n\n"
 
-			if len(more) + len(msg) < 1000:
+			if len(more) + len(msg) < 4000:
 				msg += more
 				count += 1
 			else:
 				msg += "(showing top "+str(count)+" of "+str(len(stats))+")"
 				break
 
-		await self.private_log(msg)
-
-
-
-
-
+		return msg
 
 	def count_progeny_for(self,member_id):
 		progeny = 0
