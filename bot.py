@@ -156,7 +156,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.12)")
+			await self.private_log("I'm back online! (v3.13)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -277,14 +277,14 @@ class Bot():
 		mstats.sort(key=lambda m: m['chance'],reverse=True)
 		bstats = [m for m in mstats if m['m'].id == bestower.id][0]
 		rank_index = mstats.index(bstats)+1
-		rank = "most" if rank_index == 1 else self.nth(rank_index)+" most"
+		total_eligible = str(len(mstats))
+		rank = "most" if rank_index == 1 else "least" if rank_index == total_eligible else self.nth(rank_index)+" most"
 		chance = str(round(bstats['chance']*100,2))
 
 		they = self.pronoun_for(bestower).capitalize()
 		were = 'were' if they == 'They' else 'was'
 
 		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
-		total_eligible = str(len(mstats))
 
 		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
 
