@@ -12,15 +12,6 @@ import pprint
 from exceptions import FeedbackError
 import bothelp
 
-#todo:
-
-	# ===== IDEAS
-
-	# colors change automatically based on rank
-	# command to get info on users
-	# more stats on bestowment announcements!
-
-
 
 class Bot():
 	def __init__(self, debug=True):
@@ -165,7 +156,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.11)")
+			await self.private_log("I'm back online! (v3.12)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -293,8 +284,9 @@ class Bot():
 		were = 'were' if they == 'They' else 'was'
 
 		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
+		total_eligible = str(len(mstats))
 
-		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n{they} {were} the {rank} likely with {an} {chance}% chance."
+		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
 
 		await self.public_log(msg)
 
