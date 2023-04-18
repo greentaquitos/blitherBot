@@ -333,7 +333,7 @@ class Bot():
 			if len(invites) < 1:
 				await self.bestow()
 
-		await asyncio.sleep(30*60)
+		await asyncio.sleep(60)
 		await self.audit()
 
 	def draw_from_raffle(self):
