@@ -156,7 +156,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.13)")
+			await self.private_log("I'm back online! (v3.14)")
 			await self.audit()
 
 	async def on_message(self,m):
@@ -286,7 +286,7 @@ class Bot():
 
 		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
 
-		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
+		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
 
 		await self.public_log(msg)
 
@@ -306,7 +306,6 @@ class Bot():
 		await self.bestow()
 
 	async def audit(self):
-		await self.private_log("auditing "+str(self.audit_count))
 		if not self.do_bestow:
 			return
 
@@ -331,7 +330,6 @@ class Bot():
 		else:
 			invites = await self.lobby_channel.invites()
 			invites = [i for i in invites if i.inviter.id == self.client.user.id and not i.revoked]
-			await self.private_log("found "+str(len(invites))+" invites")
 			if len(invites) < 1:
 				await self.bestow()
 
