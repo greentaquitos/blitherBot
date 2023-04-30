@@ -35,7 +35,8 @@ class Bot():
 		con = self.db = sqlite3.connect("db.db")
 		schema = {
 			"messages (sent_at int, sent_by int unique)",
-			"bestowments (link text, bestower int, bestowee int, given_to_bestower_at int, bestowee_joined_at int)"
+			"bestowments (link text, bestower int, bestowee int, given_to_bestower_at int, bestowee_joined_at int, released_at int)",
+			"inactivity (bestowment_id int, member int unique)"
 		}
 
 		for t in schema:
@@ -158,7 +159,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.16t)")
+			await self.private_log("I'm back online! (v3.19)")
 			self.audit.start()
 
 	async def on_message(self,m):
@@ -260,7 +261,10 @@ class Bot():
 			m = self.guild.get_member(i[0])
 			if m:
 				await m.remove_roles(self.active_role)
-				await self.private_log("removed active role from "+m.name)
+				cursor = self.db.cursor()
+				cursor.execute("INSERT OR REPLACE INTO inactivity (bestowment_id, member) VALUES (?,?)",[self.active_bestowment, m.id])
+				self.db.commit()
+				cursor.close()
 
 	# BESTOWMENT
 
@@ -283,7 +287,7 @@ class Bot():
 
 		invite = await self.lobby_channel.create_invite(max_age=self.config.INVITE_DURATION,max_uses=1)
 
-		await self.bestowment_channel.send(bestower.mention + ", behold! This is the only invite link in the server, good for exactly one use. \n\n||`"+str(invite)+"`||\n\n It expires in 3 days or when you say `bot pass` to hand the duty of bestowment off to someone else.")
+		await self.bestowment_channel.send(bestower.mention + ", behold! This is the only invite link in the server, good for exactly one use. \n\n||`"+str(invite)+"`||\n\n You may share it with whomever you like or say `bot pass` to hand the duty of bestowment off to someone else.\n\nIf the link hasn't been used in 2 days, it will be shared with the rest of the server.")
 
 		cursor = self.db.cursor()
 		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
@@ -332,6 +336,8 @@ class Bot():
 
 		count = self.audit_count
 
+		await self.check_for_inactivity()
+
 		cursor = self.db.execute("SELECT bestowee FROM bestowments")
 		members = [q[0] for q in cursor.fetchall()]
 		cursor.close()
@@ -344,17 +350,35 @@ class Bot():
 
 		if len(non_bestowees) == 1 and self.active_bestowment:
 			await self.resolve_active_bestowment(non_bestowees[0])
+
 		elif len(non_bestowees) == 1:
 			self.do_bestow = False
 			await self.private_alert("Audit found no active bestowment!")
+
 		elif len(non_bestowees) > 1:
 			self.do_bestow = False
 			await self.private_alert("Audit found more than one new member!")
+
 		else:
 			invites = await self.lobby_channel.invites()
 			invites = [i for i in invites if i.inviter.id == self.client.user.id and not i.revoked]
 			if len(invites) < 1:
 				await self.bestow()
+
+			elif self.active_bestowment:
+				cursor = self.db.execute("SELECT given_to_bestower_at,link,released_at FROM bestowments WHERE rowid = ?",[self.active_bestowment])
+				bestowment_time,link,released_at = cursor.fetchall()[0]
+				cursor.close()
+				if not released_at:
+
+					two_days_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+					if bestowment_time < two_days_ago:
+						await self.public_log(f"||{link}||")
+						cursor = self.db.cursor()
+						cursor.execute("UPDATE bestowments SET released_at = ? WHERE rowid = ?",[datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f"),self.active_bestowment])
+						self.db.commit()
+						cursor.close()
 
 	def draw_from_raffle(self):
 		return random.choice(self.build_raffle())
@@ -373,18 +397,22 @@ class Bot():
 		for m in members:
 			cursor = self.db.execute("SELECT rowid FROM bestowments WHERE bestower = ? OR bestowee = ? ORDER BY given_to_bestower_at DESC LIMIT 1", [m.id, m.id])
 			touch = cursor.fetchall()[0][0]
+			cursor = self.db.execute("SELECT bestowment_id FROM inactivity WHERE member = ? ORDER BY bestowment_id DESC LIMIT 1",[m.id])
+			last_inactive = cursor.fetchall()
+			last_inactive = last_inactive[0][0] if len(last_inactive) > 0 else None
+			effective_touch = last_inactive if last_inactive and last_inactive > touch else touch
 			cursor = self.db.execute("SELECT COUNT(rowid) FROM bestowments WHERE bestower = ?",[m.id])
 			bestowments = cursor.fetchall()[0][0]
 			cursor.close()
 			children = self.count_progeny_for(m.id)
-			member_stats.append({'name':m.name,'id':m.id,'touch':touch,'bestowments':bestowments,'children':children,'m':m})
+			member_stats.append({'name':m.name,'id':m.id,'touch':touch,'effective_touch':effective_touch,'bestowments':bestowments,'children':children,'inactive':last_inactive,'m':m})
 
 		max_touch = max([m['touch'] for m in member_stats])
 		max_bestowments = max([m['bestowments'] for m in member_stats])
 		max_children = max([m['children'] for m in member_stats])
 
 		for m in member_stats:
-			m['tickets'] = max_touch+max_bestowments+max_children-m['touch']-m['bestowments']-m['children']
+			m['tickets'] = max_touch+max_bestowments+max_children-m['effective_touch']-m['bestowments']-m['children']
 		total_tickets = sum([m['tickets'] for m in member_stats])
 		for m in member_stats:
 			m['chance'] = m['tickets']/total_tickets
@@ -407,6 +435,8 @@ class Bot():
 				more += "**"+member['m'].name+"**\n"
 				more += str(member['tickets']) +" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
 				more += "last invite #: "+str(member['touch'])+"\n"
+				if member['inactive']:
+					more += "inactive on invite #: "+str(member['inactive'])+"\n"
 				more += "invites given: "+str(member['bestowments'])+"\n"
 				more += "descendants: "+str(member['children'])+"\n\n"
 
