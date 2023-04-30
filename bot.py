@@ -10,6 +10,7 @@ import datetime
 import pprint
 
 from exceptions import FeedbackError
+from discord.ext import tasks
 import bothelp
 
 
@@ -21,7 +22,8 @@ class Bot():
 
 		self.commands = [
 			("help", self.help),
-			("stats", self.stats)
+			("stats", self.stats),
+			("pass", self.skip)
 		]
 		
 		self.setup_db()
@@ -156,8 +158,8 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.14)")
-			await self.audit()
+			await self.private_log("I'm back online! (v3.16t)")
+			self.audit.start()
 
 	async def on_message(self,m):
 		if m.author.bot:
@@ -216,6 +218,21 @@ class Bot():
 			return
 		await m.reply(embed=discord.Embed(description=self.print_member_stats(arguments)))
 
+	async def skip(self,m):
+		if self.bestower_role not in m.author.roles:
+			await m.reply(embed=discord.Embed(description="Only the bestower can use this command."))
+			return
+		
+		invites = await self.lobby_channel.invites()
+		invites = [i for i in invites if i.inviter.id == self.client.user.id and not i.revoked]
+		for i in invites:
+			await i.delete()
+
+		they = self.pronoun_for(m.author)
+
+		await self.public_log(f"...and {they} chose to abstain.")
+		await self.bestow()
+
 
 	# SAVING
 
@@ -266,7 +283,7 @@ class Bot():
 
 		invite = await self.lobby_channel.create_invite(max_age=self.config.INVITE_DURATION,max_uses=1)
 
-		await self.bestowment_channel.send(bestower.mention + ", behold! This is the one and only invite link in the server and it's all yours. You may use it to invite one person within the next three days.\n\n||`"+str(invite)+"`||")
+		await self.bestowment_channel.send(bestower.mention + ", behold! This is the only invite link in the server, good for exactly one use. \n\n||`"+str(invite)+"`||\n\n It expires in 3 days or when you say `bot pass` to hand the duty of bestowment off to someone else.")
 
 		cursor = self.db.cursor()
 		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
@@ -305,9 +322,15 @@ class Bot():
 		await self.public_log(f"...and {they} chose {member}! Welcome!")
 		await self.bestow()
 
+	def stop_auditing(self):
+		self.audit.cancel()
+
+	@tasks.loop(seconds=60.0)
 	async def audit(self):
 		if not self.do_bestow:
 			return
+
+		count = self.audit_count
 
 		cursor = self.db.execute("SELECT bestowee FROM bestowments")
 		members = [q[0] for q in cursor.fetchall()]
@@ -332,9 +355,6 @@ class Bot():
 			invites = [i for i in invites if i.inviter.id == self.client.user.id and not i.revoked]
 			if len(invites) < 1:
 				await self.bestow()
-
-		await asyncio.sleep(60)
-		await self.audit()
 
 	def draw_from_raffle(self):
 		return random.choice(self.build_raffle())
