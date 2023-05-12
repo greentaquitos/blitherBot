@@ -23,7 +23,8 @@ class Bot():
 		self.commands = [
 			("help", self.help),
 			("stats", self.stats),
-			("pass", self.skip)
+			("pass", self.skip),
+			("lineage", self.lineage)
 		]
 		
 		self.setup_db()
@@ -159,7 +160,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.19)")
+			await self.private_log("I'm back online! (v3.22)")
 			self.audit.start()
 
 	async def on_message(self,m):
@@ -234,6 +235,69 @@ class Bot():
 		await self.public_log(f"...and {they} chose to abstain.")
 		await self.bestow()
 
+	
+	async def lineage(self,m):
+		arguments = m.content[12:]
+		if m.channel.id not in self.config.SPAM_CHANNELS:
+			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
+			return
+		await m.reply(embed=discord.Embed(description=self.print_lineage(arguments,m)))
+
+	def print_lineage(self, arguments, m):
+		arguments = arguments.lower()
+		if len(arguments) < 1:
+			target = m.author
+		else:
+			potential_targets = []
+			for m in self.guild.members:
+				if m.bot:
+					continue
+				if m.name.lower() == arguments:
+					potential_targets.append([m,'exact name'])
+				elif m.display_name.lower() == arguments:
+					potential_targets.append([m, 'exact display name'])
+				elif m.name.lower().startswith(arguments):
+					potential_targets.append([m,'name'])
+				elif m.display_name.lower().startswith(arguments):
+					potential_targets.append([m,'display_name'])
+
+			if len(potential_targets) < 1:
+				return "Could not find that member."
+
+			if any(i[1] == 'exact name' for i in potential_targets):
+				target_type = 'exact name'
+			elif any(i[1] == 'exact display name' for i in potential_targets):
+				target_type = 'exact display name'
+			elif any(i[1] == 'name' for i in potential_targets):
+				target_type = 'name'
+			else:
+				target_type = 'display_name'
+
+			if target_type in ['name', 'exact name']:
+				potential_targets.sort(key=lambda x:len(x[0].name))
+			else:
+				potential_targets.sort(key=lambda x:len(x[0].display_name))
+
+			for t in potential_targets:
+				if t[1] == target_type:
+					target = t[0]
+					break
+
+		parents = [target]
+		while True:
+			parent = self.get_parent_for(parents[-1])
+			if parent == None:
+				break
+			parents.append(parent)
+
+		parents.reverse()
+
+		return ' -> '.join(p.mention for p in parents)
+
+	def get_parent_for(self,member):
+		cur = self.db.execute("SELECT bestower FROM bestowments WHERE bestowee = ?",[member.id])
+		parent = [q[0] for q in cur.fetchall()]
+		return self.guild.get_member(parent[0]) if parent else None
 
 	# SAVING
 
@@ -271,6 +335,7 @@ class Bot():
 	async def bestow(self):
 		if not self.do_bestow:
 			return
+		self.do_bestow = False
 
 		await self.check_for_inactivity()
 
@@ -307,9 +372,10 @@ class Bot():
 
 		an = "an" if str(chance)[0] == '8' or str(chance)[0:2] == '11' else "a"
 
-		msg = f"{bestower.name} has been chosen to bestow invite link #{invite_number}.\n\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
+		msg = f"{bestower.mention} has been chosen to bestow invite link #{invite_number}.\n\n{they} {were} the {rank} likely out of {total_eligible} with {an} {chance}% chance."
 
 		await self.public_log(msg)
+		self.do_bestow = True
 
 	async def resolve_active_bestowment(self, member):
 		cursor = self.db.execute("SELECT bestower FROM bestowments WHERE rowid = ?",[self.active_bestowment])
@@ -387,6 +453,10 @@ class Bot():
 		mstats = self.compile_member_stats()
 		raffle = []
 		for m in mstats:
+
+			if max([i['touch'] for i in mstats]) == 41 and m['id'] != 466466163757678592:
+				continue
+
 			for t in range(m['tickets']):
 				raffle.append(m['m'])
 		return raffle
