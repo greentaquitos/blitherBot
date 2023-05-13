@@ -389,7 +389,7 @@ class Bot():
 		self.db.commit()
 		cursor.close()
 
-		await self.public_log(f"...and {they} chose {member}! Welcome!")
+		await self.public_log(f"...and {they} chose {member.mention}! Welcome!")
 		await self.bestow()
 
 	def stop_auditing(self):
