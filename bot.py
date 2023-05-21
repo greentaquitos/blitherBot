@@ -168,11 +168,12 @@ class Bot():
 			return
 
 		try:
-			self.save_message(m)
-			
-			if self.active_role not in m.author.roles:
-				await m.author.add_roles(self.active_role)
-				await self.private_log("added active role to "+m.author.name)
+			if m.content != 'bot pass':
+				self.save_message(m)
+				
+				if self.active_role not in m.author.roles:
+					await m.author.add_roles(self.active_role)
+					await self.private_log("added active role to "+m.author.name)
 
 		
 		except Exception as e:
