@@ -24,7 +24,11 @@ class Bot():
 			("help", self.help),
 			("stats", self.stats),
 			("pass", self.skip),
-			("lineage", self.lineage)
+			("lineage", self.lineage),
+			("liniage", self.liniage),
+			("progeny", self.progeny),
+			("progeni", self.progeni),
+			("test", self.test)
 		]
 		
 		self.setup_db()
@@ -160,7 +164,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.22)")
+			await self.private_log("I'm back online! (v3.23)")
 			self.audit.start()
 
 	async def on_message(self,m):
@@ -219,7 +223,7 @@ class Bot():
 		if m.channel.id not in self.config.SPAM_CHANNELS:
 			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
 			return
-		await m.reply(embed=discord.Embed(description=self.print_member_stats(arguments)))
+		await self.print_member_stats(m,arguments)
 
 	async def skip(self,m):
 		if self.bestower_role not in m.author.roles:
@@ -236,15 +240,52 @@ class Bot():
 		await self.public_log(f"...and {they} chose to abstain.")
 		await self.bestow()
 
-	
-	async def lineage(self,m):
+	async def progeni(self,m):
+		await self.progeny(m,True)
+
+	async def progeny(self,m,showall=False):
 		arguments = m.content[12:]
 		if m.channel.id not in self.config.SPAM_CHANNELS:
 			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
 			return
-		await m.reply(embed=discord.Embed(description=self.print_lineage(arguments,m)))
+		target = self.select_target(arguments, m)
+		if not target:
+			await m.reply(embed=discord.Embed(description="Could not find that member."))
+			return
 
-	def print_lineage(self, arguments, m):
+		family_tree = self.print_progeny_for(target.id,showall=showall)
+		footer = ""
+		if family_tree == "":
+			family_tree = f"No progeny found for {target.mention}"
+		else:
+			footer = f"Showing progeny for {target.name}"
+		await m.reply(embed=discord.Embed(description=family_tree).set_footer(text=footer))
+
+	
+	async def liniage(self,m):
+		await self.lineage(m,showall=True)
+
+	async def lineage(self,m,showall=False):
+		arguments = m.content[12:]
+		if m.channel.id not in self.config.SPAM_CHANNELS:
+			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
+			return
+		await m.reply(embed=discord.Embed(description=self.print_lineage(arguments,m,showall)))
+
+	def print_lineage(self, arguments, m, showall=False):
+		target = self.select_target(arguments, m)
+		if not target:
+			return "Could not find that member."
+		parents = [target]
+		while True:
+			parent = self.get_parent_for(parents[-1])
+			if parent == None:
+				break
+			parents.append(parent)
+		parents.reverse()
+		return '\n-> '.join(f"#{self.get_invite_number_for(p)} {self.print_name_for(p.id,showall)}" for p in parents)
+
+	def select_target(self, arguments, m):
 		arguments = arguments.lower()
 		if len(arguments) < 1:
 			target = m.author
@@ -263,7 +304,7 @@ class Bot():
 					potential_targets.append([m,'display_name'])
 
 			if len(potential_targets) < 1:
-				return "Could not find that member."
+				return None
 
 			if any(i[1] == 'exact name' for i in potential_targets):
 				target_type = 'exact name'
@@ -283,22 +324,27 @@ class Bot():
 				if t[1] == target_type:
 					target = t[0]
 					break
-
-		parents = [target]
-		while True:
-			parent = self.get_parent_for(parents[-1])
-			if parent == None:
-				break
-			parents.append(parent)
-
-		parents.reverse()
-
-		return ' -> '.join(p.mention for p in parents)
+		return target
 
 	def get_parent_for(self,member):
-		cur = self.db.execute("SELECT bestower FROM bestowments WHERE bestowee = ?",[member.id])
+		cur = self.db.execute("SELECT bestower FROM bestowments WHERE bestowee = ? AND bestower != bestowee",[member.id])
 		parent = [q[0] for q in cur.fetchall()]
-		return self.guild.get_member(parent[0]) if parent else None
+		parent_m = None
+		if parent:
+			parent_m = self.guild.get_member(parent[0])
+			if not parent_m:
+				class Parent:
+					def __init__(self,my_id):
+						self.id = my_id
+						self.mention = f"<@{my_id}>"
+				parent_m = Parent(parent[0])
+
+		return parent_m
+
+	def get_invite_number_for(self,member):
+		cur = self.db.execute("SELECT rowid FROM bestowments WHERE bestowee = ? AND bestower != bestowee",[member.id])
+		inv_num = [q[0] for q in cur.fetchall()]
+		return inv_num[0] if inv_num else 0
 
 	# SAVING
 
@@ -353,7 +399,8 @@ class Bot():
 
 		invite = await self.lobby_channel.create_invite(max_age=self.config.INVITE_DURATION,max_uses=1)
 
-		await self.bestowment_channel.send(bestower.mention + ", behold! This is the only invite link in the server, good for exactly one use. \n\n||`"+str(invite)+"`||\n\n You may share it with whomever you like or say `bot pass` to hand the duty of bestowment off to someone else.\n\nIf the link hasn't been used in 2 days, it will be shared with the rest of the server.")
+		await self.bestowment_channel.purge(check=lambda m: m.author.bot)
+		await self.bestowment_channel.send(bestower.mention,embed=discord.Embed(description=str(invite)+"\n\nBehold! This is the only invite link in the server, good for exactly one use.\n\nYou may share it with whomever you like or say `bot pass` to hand the duty of bestowment off to someone else.\n\nYou have two days.\n").set_footer(icon_url=random.choice(self.guild.emojis).url,text="The internet is counting on you"))
 
 		cursor = self.db.cursor()
 		cursor.execute("INSERT INTO bestowments(link, bestower, given_to_bestower_at) VALUES(?,?,?)",[invite.url,bestower.id,invite.created_at])
@@ -471,12 +518,15 @@ class Bot():
 			cursor = self.db.execute("SELECT bestowment_id FROM inactivity WHERE member = ? ORDER BY bestowment_id DESC LIMIT 1",[m.id])
 			last_inactive = cursor.fetchall()
 			last_inactive = last_inactive[0][0] if len(last_inactive) > 0 else None
+			cursor = self.db.execute("SELECT rowid FROM bestowments WHERE bestowee = ? ORDER BY given_to_bestower_at DESC LIMIT 1", [m.id])
+			invite_number = cursor.fetchall()
+			invite_number = invite_number[0][0] if len(invite_number) > 0 else 0
 			effective_touch = last_inactive if last_inactive and last_inactive > touch else touch
 			cursor = self.db.execute("SELECT COUNT(rowid) FROM bestowments WHERE bestower = ?",[m.id])
 			bestowments = cursor.fetchall()[0][0]
 			cursor.close()
 			children = self.count_progeny_for(m.id)
-			member_stats.append({'name':m.name,'id':m.id,'touch':touch,'effective_touch':effective_touch,'bestowments':bestowments,'children':children,'inactive':last_inactive,'m':m})
+			member_stats.append({'name':m.name,'id':m.id,'touch':touch,'effective_touch':effective_touch,'bestowments':bestowments,'children':children,'inactive':last_inactive,'m':m, 'invite_number':invite_number})
 
 		max_touch = max([m['touch'] for m in member_stats])
 		max_bestowments = max([m['bestowments'] for m in member_stats])
@@ -490,45 +540,110 @@ class Bot():
 
 		return member_stats
 
-	def print_member_stats(self,size='l'):
-		msg = ""
+	async def print_member_stats(self,op,size='l'):
+		msg = []
+		footer = ""
 		stats = self.compile_member_stats()
 		stats.sort(key=lambda m:m['chance'],reverse=True)
 		count = 0
 		for member in stats:
 			if size == 's':
-				more = ""
-				more += "**"+member['m'].name+'**: '+str(member['tickets'])+" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
+				more = " #"+str(member['invite_number'])+" **"+member['m'].name+'**\n'+str(member['tickets'])+" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
 			elif size == 'xs':
-				more = '**'+member['m'].name+'**: '+str(round(member['chance']*100,2))+'%\n'
+				more = "**"+member['m'].name+'**: '+str(round(member['chance']*100,2))+'%'
 			else:
 				more = ""
-				more += "**"+member['m'].name+"**\n"
+				more += "#"+str(member['invite_number'])+" **"+member['m'].name+"**\n"
 				more += str(member['tickets']) +" tickets / "+str(round(member['chance']*100,2))+"% chance\n"
 				more += "last invite #: "+str(member['touch'])+"\n"
 				if member['inactive']:
 					more += "inactive on invite #: "+str(member['inactive'])+"\n"
 				more += "invites given: "+str(member['bestowments'])+"\n"
-				more += "descendants: "+str(member['children'])+"\n\n"
+				more += "descendants: "+str(member['children'])+"\n"
+				if not member['inactive']:
+					more += '\n'
 
-			if len(more) + len(msg) < 4000:
-				msg += more
+			if len(more) + sum(len(m) for m in msg) < 3000 and (size in ['xs','s'] or len(msg) < 30):
+				msg.append(more)
 				count += 1
 			else:
-				msg += "(showing top "+str(count)+" of "+str(len(stats))+")"
+				footer = "showing top "+str(count)+" of "+str(len(stats))
 				break
+		if footer == "":
+			footer = "showing all "+str(count)
 
-		return msg
+		fields = []
+
+		if size != 'xs':
+			msglen = sum(len(m) for m in msg)
+			fields = [[],[],[]]
+			fieldlen = -(len(msg) // -len(fields))
+
+			for i,m in enumerate(msg):
+				fields[i % 3].append(m)
+
+		description = " "
+
+		if size not in ['s', 'xs']:
+			last_invite = max(m['touch'] for m in stats)
+			total_tickets = sum(m['tickets'] for m in stats)
+			max_descendants = max(m['children'] for m in stats)
+			max_descendants_haver = [m['m'] for m in stats if m['children'] == max_descendants][0]
+			max_invites = max(m['bestowments'] for m in stats)
+			max_invites_haver = [m['m'] for m in stats if m['bestowments'] == max_invites][0]
+
+			description = "current invite #: "+str(last_invite)
+			description += "\ntotal tickets: "+str(total_tickets)+"\n"
+			description += "most descendants: "+str(max_descendants)+" ("+max_descendants_haver.name+")\n"
+			description += "most invites: "+str(max_invites)+" ("+max_invites_haver.name+")"
+
+		if size == 'xs':
+			description += '\n'.join(msg)
+
+		embed = discord.Embed(description=description).set_footer(text=footer)
+		for f in fields:
+			embed.add_field(name=" ",value='\n'.join(f))
+
+		await op.reply(embed=embed, mention_author=False)
+		return
 
 	def count_progeny_for(self,member_id):
 		progeny = 0
 		for c in self.get_children_for(member_id):
 			progeny += 1
-			progeny += self.count_progeny_for(c)
+			progeny += self.count_progeny_for(c[1])
 		return progeny
 
+	def print_progeny_for(self,member_id,indents=-1,showall=False):
+		progeny = ""
+		indents += 1
+		for c in self.get_children_for(member_id):
+			for k,i in enumerate(range(indents)):
+				if k == indents-1:
+					progeny += '`  `'
+				else:
+					progeny += '`  ` '
+			progeny += f"#{c[0]} {self.print_name_for(c[1],showall)}\n"
+			progeny += self.print_progeny_for(c[1],indents,showall)
+		return progeny
+
+	def print_name_for(self,member_id,showall=False):
+		name = f"<@{member_id}>"
+		member = self.guild.get_member(member_id)
+		if member and (self.active_role not in member.roles or showall):
+			name = member.name
+		if not member:
+			name = "~~"+name+"~~"
+		return name
+
+
 	def get_children_for(self,member_id):
-		cursor = self.db.execute("SELECT bestowee FROM bestowments WHERE bestowee IS NOT NULL AND bestower = ?",[member_id])
-		children = [c[0] for c in cursor.fetchall()]
+		cursor = self.db.execute("SELECT rowid,bestowee FROM bestowments WHERE bestowee IS NOT NULL AND bestower = ? AND bestower != bestowee",[member_id])
+		children = [c for c in cursor.fetchall()]
 		cursor.close()
 		return children
+
+	async def test(self,m):
+		if not m.author.id == self.taq.id:
+			return
+		await m.reply(self.taq.mention,embed=discord.Embed(description="https://discord.gg/abcdefg\n\nBehold! This is the only invite link in the server, good for exactly one use.\n\nYou may share it with whomever you like or say `bot pass` to hand the duty of bestowment off to someone else.\n\nYou have two days.\n").set_footer(icon_url=random.choice(self.guild.emojis).url,text="The internet is counting on you"))
