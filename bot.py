@@ -159,6 +159,7 @@ class Bot():
 		self.lobby_channel = discord.utils.get(self.guild.channels, id=self.config.LOBBY_CHANNEL)
 		self.public_log_channel = discord.utils.get(self.guild.channels, id=self.config.PUBLIC_LOG_CHANNEL)
 		self.private_log_channel = discord.utils.get(self.guild.channels, id=self.config.PRIVATE_LOG_CHANNEL)
+		self.sex_gifs_channel = discord.utils.get(self.guild.channels, id=self.config.SEX_GIFS_CHANNEL)
 		
 		self.taq = self.guild.get_member(self.config.TAQ)
 		self.eg = self.guild.get_member(self.config.EG)
@@ -192,6 +193,14 @@ class Bot():
 
 		except FeedbackError as e:
 			await self.private_alert(f"Error responding to message: {e}")
+
+		except Exception as e:
+			await self.private_alert(traceback.format_exc())
+
+
+		try:
+			if m.channel == self.sex_gifs_channel and random.random() < 1/30 and len(m.embeds) > 0:
+				await self.rename_sex_gifs()
 
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
@@ -643,7 +652,17 @@ class Bot():
 		cursor.close()
 		return children
 
+	async def rename_sex_gifs(self):
+		with open('plural_nouns.txt','r') as f:
+			words = f.read().split(' ')
+		word = random.choice(words).strip()
+		await self.sex_gifs_channel.edit(name=f"sex {word}")
+		await self.sex_gifs_channel.send(embed=discord.Embed(description=f"NEW THEME: {word.upper()}",colour=random.randrange(255)*random.randrange(255)*random.randrange(255)))
+
 	async def test(self,m):
 		if not m.author.id == self.taq.id:
 			return
-		await m.reply(self.taq.mention,embed=discord.Embed(description="https://discord.gg/abcdefg\n\nBehold! This is the only invite link in the server, good for exactly one use.\n\nYou may share it with whomever you like or say `bot pass` to hand the duty of bestowment off to someone else.\n\nYou have two days.\n").set_footer(icon_url=random.choice(self.guild.emojis).url,text="The internet is counting on you"))
+		await m.reply(f"renaming channel...")
+		await self.rename_sex_gifs()
+		await m.reply('done')
+
