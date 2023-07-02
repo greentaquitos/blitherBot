@@ -28,7 +28,8 @@ class Bot():
 			("liniage", self.liniage),
 			("progeny", self.progeny),
 			("progeni", self.progeni),
-			("test", self.test)
+			("test", self.test),
+			("troll", self.troll)
 		]
 		
 		self.setup_db()
@@ -199,7 +200,7 @@ class Bot():
 
 
 		try:
-			if m.channel == self.sex_gifs_channel and random.random() < 1/30 and len(m.embeds) > 0:
+			if m.channel == self.sex_gifs_channel and random.random() < 1/15 and len(m.embeds) > 0:
 				await self.rename_sex_gifs()
 
 		except Exception as e:
@@ -666,3 +667,26 @@ class Bot():
 		await self.rename_sex_gifs()
 		await m.reply('done')
 
+	async def troll(self, m):
+		if not m.author.id in [self.taq.id,self.eg.id]:
+			return
+		arguments = m.content[10:].split(' ')
+
+		try:
+			channel_id = int(arguments[0])
+		except ValueError:
+			await m.reply("invalid channel id")
+			await m.delete()
+			return
+
+		target_channel = discord.utils.get(self.guild.channels, id=channel_id)
+
+		if not target_channel:
+			await m.reply("channel not found")
+			await m.delete()
+			return
+
+		content = ' '.join(arguments[1:])
+		await target_channel.send(content)
+		await m.delete()
+		return
