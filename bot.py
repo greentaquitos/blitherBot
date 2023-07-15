@@ -28,6 +28,7 @@ class Bot():
 			("liniage", self.liniage),
 			("progeny", self.progeny),
 			("progeni", self.progeni),
+			("sex", self.sex_),
 			("test", self.test),
 			("troll", self.troll)
 		]
@@ -173,6 +174,7 @@ class Bot():
 		if m.author.bot:
 			return
 
+		# LOG MEMBER ACTIVITY
 		try:
 			if m.content != 'bot pass':
 				self.save_message(m)
@@ -180,29 +182,26 @@ class Bot():
 				if self.active_role not in m.author.roles:
 					await m.author.add_roles(self.active_role)
 					await self.private_log("added active role to "+m.author.name)
-
-		
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
 
 
+		# EXECUTE COMMANDS
 		try:
 			if m.content.lower().startswith('bot '):
 				await self.parse_command(m)
 			else:
 				respondable = False
-
 		except FeedbackError as e:
 			await self.private_alert(f"Error responding to message: {e}")
-
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
 
-
+		# CHANGE SEX GIFS
 		try:
-			if m.channel == self.sex_gifs_channel and random.random() < 1/15 and len(m.embeds) > 0:
+			r = random.random()
+			if m.channel == self.sex_gifs_channel and r < 1/15 and len(m.embeds) > 0:
 				await self.rename_sex_gifs()
-
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
 
@@ -281,6 +280,19 @@ class Bot():
 			await m.reply(embed=discord.Embed(description="This command only works in designated spam channels."))
 			return
 		await m.reply(embed=discord.Embed(description=self.print_lineage(arguments,m,showall)))
+
+	async def sex_(self,m):
+		if not m.author.id in [self.taq.id,self.eg.id]:
+			return
+		await self.rename_sex_gifs(m.content[8:])
+		await m.reply("renamed channel!")
+
+	async def test(self,m):
+		if not m.author.id == self.taq.id:
+			return
+		await m.reply(f"renaming channel...")
+		await self.rename_sex_gifs()
+		await m.reply('done')
 
 	def print_lineage(self, arguments, m, showall=False):
 		target = self.select_target(arguments, m)
@@ -653,19 +665,15 @@ class Bot():
 		cursor.close()
 		return children
 
-	async def rename_sex_gifs(self):
-		with open('plural_nouns.txt','r') as f:
-			words = f.read().split(' ')
-		word = random.choice(words).strip()
+	async def rename_sex_gifs(self,name=None):
+		if not name:
+			with open('plural_nouns.txt','r') as f:
+				words = f.read().split(' ')
+			word = random.choice(words).strip()
+		else:
+			word = name
 		await self.sex_gifs_channel.edit(name=f"sex {word}")
 		await self.sex_gifs_channel.send(embed=discord.Embed(description=f"NEW THEME: {word.upper()}",colour=random.randrange(255)*random.randrange(255)*random.randrange(255)))
-
-	async def test(self,m):
-		if not m.author.id == self.taq.id:
-			return
-		await m.reply(f"renaming channel...")
-		await self.rename_sex_gifs()
-		await m.reply('done')
 
 	async def troll(self, m):
 		if not m.author.id in [self.taq.id,self.eg.id]:
