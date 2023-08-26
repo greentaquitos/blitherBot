@@ -127,6 +127,10 @@ class Bot():
 		return [m for m in self.guild.members if not m.bot and self.active_role in m.roles and m.id != self.most_recent_bestower]
 
 	@property
+	def active_members(self):
+		return [m for m in self.guild.members if not m.bot and self.active_role in m.roles]
+
+	@property
 	def most_recent_bestower(self):
 		cur = self.db.execute("SELECT bestower FROM bestowments ORDER BY given_to_bestower_at DESC LIMIT 1")
 		mrb = [q[0] for q in cur.fetchall()]
@@ -382,9 +386,9 @@ class Bot():
 
 	async def check_for_inactivity(self):
 		one_week_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f")
+		m_ids = [m.id for m in self.active_members]
 		cur = self.db.execute("SELECT sent_by, sent_at FROM messages")
-		members = [(q[0],q[1]) for q in cur.fetchall()]
-
+		members = [(q[0],q[1]) for q in cur.fetchall() if q[0] in m_ids]
 		cur.close()
 
 		for i in members:
