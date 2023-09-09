@@ -8,6 +8,7 @@ import traceback
 import re
 import datetime
 import pprint
+import math
 
 from exceptions import FeedbackError
 from discord.ext import tasks
@@ -171,7 +172,7 @@ class Bot():
 		self.eg = self.guild.get_member(self.config.EG)
 
 		if not self.debug:
-			await self.private_log("I'm back online! (v3.23)")
+			await self.private_log("I'm back online! (v3.24)")
 			self.audit.start()
 
 	async def on_message(self,m):
@@ -203,9 +204,21 @@ class Bot():
 
 		# CHANGE SEX GIFS
 		try:
-			r = random.random()
-			if m.channel == self.sex_gifs_channel and r < 1/15 and len(m.embeds) > 0:
-				await self.rename_sex_gifs()
+			has_gif = (len(m.embeds) > 0 or any(d in m.content for d in [".gif","tenor",".mp4"]))
+
+			if m.channel == self.sex_gifs_channel and has_gif:
+
+				last_theme_change = await self.sex_gifs_channel.history().get(author=self.client.user)
+				seconds_since_last_theme_change = (datetime.datetime.now() - last_theme_change.created_at).total_seconds()
+				chance_to_hit = math.floor( ((60*60*24*7) - seconds_since_last_theme_change) / (60*24*7*3) )
+				chance_to_hit = 1/chance_to_hit if chance_to_hit > 1 else 1
+				r = random.random()
+
+				await self.private_log(f"{r}\nvs\n{chance_to_hit}\n{m.jump_url}")
+
+				if r < chance_to_hit:
+					await self.rename_sex_gifs()
+
 		except Exception as e:
 			await self.private_alert(traceback.format_exc())
 
